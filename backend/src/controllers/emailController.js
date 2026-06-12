@@ -157,4 +157,39 @@ const getStatus = async (req, res) => {
   }
 };
 
-module.exports = { ingest, getStatus };
+// GET /api/emails — paginated list of all emails, sorted by timestamp desc
+const getEmails = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 100));
+    const skip = (page - 1) * limit;
+
+    const filter = {};
+    if (req.query.category) filter.category = req.query.category;
+    if (req.query.urgency) filter.urgency = req.query.urgency;
+    if (req.query.status) filter.status = req.query.status;
+    if (req.query.sender) filter.sender = { $regex: req.query.sender, $options: 'i' };
+    if (req.query.requires_human === 'true') filter.requiresHuman = true;
+
+    const [emails, total] = await Promise.all([
+      Email.find(filter)
+        .sort({ timestamp: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Email.countDocuments(filter),
+    ]);
+
+    res.json({
+      success: true,
+      emails,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+    });
+  } catch (error) {
+    res.status(500).json({ error_code: 'SERVER_ERROR', message: error.message, details: {} });
+  }
+};
+
+module.exports = { ingest, getStatus, getEmails };
