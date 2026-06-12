@@ -8,7 +8,7 @@ const runAgent = require("../services/agent");
 const Email = require("../models/Email");
 const { v4: uuidv4 } = require("uuid");
 
-const DATA_PATH = path.resolve(__dirname, "../../../../data/email-data-advanced.json");
+const DATA_PATH = path.resolve(__dirname, "../../../data/email-data-advanced.json");
 
 // POST /api/stream/start — replay dataset at configurable speed
 const startStream = async (req, res) => {
