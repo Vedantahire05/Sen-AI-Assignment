@@ -2,6 +2,8 @@
 
 > AI-powered Customer Relationship Management with autonomous triage agent, RAG pipeline, and real-time email operations.
 
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-blue?logo=github)](https://github.com/Vedantahire05/Sen-AI-Assignment) &nbsp; **[github.com/Vedantahire05/Sen-AI-Assignment](https://github.com/Vedantahire05/Sen-AI-Assignment)**
+
 ---
 
 ## Architecture Overview
@@ -232,4 +234,3 @@ See `backend/src/models/` for Mongoose schemas. Key fields:
 3. **Single RAG service**: The Python ChromaDB service is a sidecar. At scale, this should be a proper vector DB (Pinecone, pgvector) with horizontal scaling.
 4. **No auth layer**: The API has no authentication. In production, add JWT + API key middleware before any endpoint.
 5. **LLM safety enforcement**: Post-LLM safety checks (Critical → requires_human) provide a safety net but the primary defense is the prompt. Prompt injection via email body is a known risk that should be mitigated with input sanitization.
-
