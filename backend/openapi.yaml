@@ -1,0 +1,658 @@
+openapi: 3.0.3
+info:
+  title: SenAI CRM Intelligence API
+  version: 2.0.0
+  description: |
+    AI-powered CRM system with autonomous triage agent, RAG pipeline, and real-time email intelligence.
+    
+    Key features:
+    - Multi-step ReAct agent with full reasoning traces
+    - RAG-grounded email classification
+    - Async job processing with status polling
+    - WebSocket real-time events on ws://localhost:5000
+    - Sentiment trend tracking with churn risk scoring
+  contact:
+    name: SenAI Engineering
+    url: https://senai.io
+
+servers:
+  - url: http://localhost:5000
+    description: Local development
+
+tags:
+  - name: Ingest
+    description: Email ingestion and job tracking
+  - name: Stream
+    description: Dataset streaming simulation
+  - name: Agent
+    description: Autonomous ReAct agent
+  - name: Threads
+    description: Conversation thread management
+  - name: Analytics
+    description: Sentiment, category, and performance analytics
+  - name: Contacts
+    description: Contact profile and churn risk management
+  - name: RAG
+    description: Knowledge base retrieval and search
+  - name: Intelligence
+    description: Live web intelligence and reputation scraping
+  - name: Dashboard
+    description: Summary stats
+  - name: Audit
+    description: Full audit trail
+
+paths:
+
+  # ── Ingest ──────────────────────────────────────────────────────────────────
+  /api/ingest:
+    post:
+      tags: [Ingest]
+      summary: Ingest a new email
+      description: |
+        Validates schema, deduplicates by message_id, links to thread, runs heuristic pre-filter,
+        queues for async AI classification + agent processing. Returns job_id for polling.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailInput'
+            example:
+              message_id: "msg_001"
+              sender: "alice.smith@greenlight-npo.org"
+              subject: "Pricing question for non-profits"
+              body: "Hi, we're a non-profit and wondering about discounts."
+              timestamp: "2024-01-15T10:00:00Z"
+              thread_id: "thread_alice_pricing"
+      responses:
+        '202':
+          description: Email accepted for async processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '200':
+          description: Duplicate message_id (idempotent — not an error)
+
+  /api/status/{jobId}:
+    get:
+      tags: [Ingest]
+      summary: Poll async processing job status
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatusResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Stream ──────────────────────────────────────────────────────────────────
+  /api/stream/start:
+    post:
+      tags: [Stream]
+      summary: Start email dataset streaming simulation
+      description: |
+        Replays email-data-advanced.json at configurable speed.
+        Emits WebSocket events `email_ingested` and `stream_complete`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                speed:
+                  type: number
+                  description: Emails per second (default 1, max 10)
+                  default: 1
+                limit:
+                  type: integer
+                  description: Max emails to stream (omit for all)
+      responses:
+        '200':
+          description: Stream started
+
+  /api/stream/status:
+    get:
+      tags: [Stream]
+      summary: Current email processing counts by status/category
+      responses:
+        '200':
+          description: Email counts
+
+  # ── Agent ───────────────────────────────────────────────────────────────────
+  /agent/run/{emailId}:
+    post:
+      tags: [Agent]
+      summary: Run autonomous ReAct agent on an email
+      description: |
+        Executes up to 6 tool calls using the ReAct (Thought → Action → Observation) pattern.
+        Never auto-replies to Critical urgency emails.
+        Produces full reasoning trace stored in DB.
+      parameters:
+        - name: emailId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Agent run result with full reasoning trace
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRunResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /agent/dry-run/{emailId}:
+    post:
+      tags: [Agent]
+      summary: Plan agent actions without executing them
+      description: |
+        Returns the full planned reasoning trace (Thought + planned Action + ActionInput)
+        without actually calling any tools or mutating any state.
+      parameters:
+        - name: emailId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Dry-run plan with estimated final action
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DryRunResponse'
+
+  /agent/runs/{emailId}:
+    get:
+      tags: [Agent]
+      summary: Get all agent runs for an email
+      parameters:
+        - name: emailId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of agent runs
+
+  # ── Threads ─────────────────────────────────────────────────────────────────
+  /threads/{contact_email}:
+    get:
+      tags: [Threads]
+      summary: Full conversation thread for a sender
+      description: Returns all emails from the sender ordered by timestamp, with agent logs
+      parameters:
+        - name: contact_email
+          in: path
+          required: true
+          schema:
+            type: string
+            format: email
+      responses:
+        '200':
+          description: Thread with all emails and actions
+
+  # ── Analytics ───────────────────────────────────────────────────────────────
+  /analytics/sentiment-trend:
+    get:
+      tags: [Analytics]
+      summary: Time-series sentiment trend per sender or global
+      description: |
+        Includes 3-point moving average. Triggers escalation alert if 3+ consecutive
+        negative emails from a sender. Also updates contact churn risk score.
+      parameters:
+        - name: sender
+          in: query
+          schema:
+            type: string
+          description: Filter by sender email (omit for global)
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 30
+          description: Lookback window in days
+      responses:
+        '200':
+          description: Sentiment trend with moving average and escalation alert
+
+  /analytics/categories:
+    get:
+      tags: [Analytics]
+      summary: Category distribution over configurable date range
+      parameters:
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Category counts
+
+  /analytics/at-risk:
+    get:
+      tags: [Analytics]
+      summary: At-risk accounts — high churn risk or stale critical emails
+      responses:
+        '200':
+          description: High churn risk contacts and stale critical emails
+
+  /analytics/agent-performance:
+    get:
+      tags: [Analytics]
+      summary: Agent performance metrics
+      description: Auto-reply rate, escalation rate, average confidence score
+      responses:
+        '200':
+          description: Agent performance stats
+
+  /analytics/escalations:
+    get:
+      tags: [Analytics]
+      summary: Escalation counts by category
+      responses:
+        '200':
+          description: Escalation breakdown
+
+  # ── Contacts ────────────────────────────────────────────────────────────────
+  /contacts:
+    get:
+      tags: [Contacts]
+      summary: List contacts
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [VIP, Blocked, Active, Churned]
+        - name: min_churn_risk
+          in: query
+          schema:
+            type: number
+      responses:
+        '200':
+          description: Contact list
+
+  /contacts/{email}:
+    get:
+      tags: [Contacts]
+      summary: Get contact profile with churn risk
+      description: |
+        Returns contact profile, recomputes churn risk score dynamically based on
+        sentiment history, consecutive negative emails, and unresolved tickets.
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+            format: email
+      responses:
+        '200':
+          description: Contact profile with live churn risk
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /contacts/{email}/status:
+    patch:
+      tags: [Contacts]
+      summary: Update contact status
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [VIP, Blocked, Active, Churned]
+      responses:
+        '200':
+          description: Updated contact
+
+  # ── RAG ─────────────────────────────────────────────────────────────────────
+  /rag/search:
+    get:
+      tags: [RAG]
+      summary: Debug RAG retrieval — query KB and return chunks with similarity scores
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query
+      responses:
+        '200':
+          description: Retrieved chunks with similarity scores
+
+  # ── Intelligence ─────────────────────────────────────────────────────────────
+  /intelligence/reputation:
+    get:
+      tags: [Intelligence]
+      summary: Fetch current public sentiment from G2/Trustpilot
+      description: |
+        Checks robots.txt compliance, scrapes review site metadata, caches results for 6 hours.
+        Gracefully degrades if scraping fails.
+      responses:
+        '200':
+          description: Public reputation intelligence
+
+  /intelligence/enrich:
+    post:
+      tags: [Intelligence]
+      summary: Trigger web intelligence enrichment for an email context
+      description: |
+        Evaluates trigger conditions (sentiment < -0.6, review mentions, Complaint + High urgency)
+        and conditionally scrapes public intelligence sources.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                emailBody:
+                  type: string
+                category:
+                  type: string
+                sentimentScore:
+                  type: number
+                urgency:
+                  type: string
+      responses:
+        '200':
+          description: Enrichment result
+
+  # ── Dashboard ────────────────────────────────────────────────────────────────
+  /dashboard/stats:
+    get:
+      tags: [Dashboard]
+      summary: Inbox summary counts
+      description: Pending, Replied, Escalated, Critical, Spam, at-risk accounts, auto-reply rate
+      responses:
+        '200':
+          description: Dashboard stats
+
+  # ── Respond / Drafts ─────────────────────────────────────────────────────────
+  /respond/{emailId}:
+    post:
+      tags: [Threads]
+      summary: Send a reply to an email
+      parameters:
+        - name: emailId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Reply sent
+
+  /drafts/{id}:
+    patch:
+      tags: [Threads]
+      summary: Edit a proposed auto-reply draft
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Draft updated
+
+  /drafts/{id}/approve:
+    post:
+      tags: [Threads]
+      summary: Approve and send a draft; triggers audit log entry
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Draft approved and sent
+
+  # ── Audit ────────────────────────────────────────────────────────────────────
+  /audit/{entity_type}/{entity_id}:
+    get:
+      tags: [Audit]
+      summary: Full audit history for any entity
+      parameters:
+        - name: entity_type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [Email, Contact, Thread, Draft]
+        - name: entity_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Audit log entries
+
+
+components:
+  schemas:
+
+    EmailInput:
+      type: object
+      required: [message_id, sender, thread_id]
+      properties:
+        message_id:
+          type: string
+          description: Unique identifier — re-sending same ID is idempotent
+        sender:
+          type: string
+          format: email
+        subject:
+          type: string
+          default: ""
+        body:
+          type: string
+          description: Bodies >10,000 chars are truncated for LLM processing
+          default: ""
+        timestamp:
+          type: string
+          format: date-time
+        thread_id:
+          type: string
+
+    IngestResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        job_id:
+          type: string
+          description: UUID for polling via GET /api/status/:jobId
+        message:
+          type: string
+        heuristic:
+          type: object
+          properties:
+            spam: { type: boolean }
+            urgent: { type: boolean }
+            security: { type: boolean }
+            internal: { type: boolean }
+        email:
+          type: object
+          properties:
+            id: { type: string }
+            messageId: { type: string }
+            threadId: { type: string }
+            initialCategory: { type: string }
+            initialUrgency: { type: string }
+
+    JobStatusResponse:
+      type: object
+      properties:
+        job_id: { type: string }
+        status:
+          type: string
+          enum: [queued, processing, classified, agent_running, completed, failed]
+        emailId: { type: string }
+        messageId: { type: string }
+        startedAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time }
+        result:
+          type: object
+          description: Present when status=completed
+        error:
+          type: string
+          description: Present when status=failed
+
+    Classification:
+      type: object
+      properties:
+        category:
+          type: string
+          enum: [Complaint, Inquiry, Bug Report, Feature Request, Compliance, Legal, Billing, Spam, Internal, Other]
+        sentiment:
+          type: string
+          enum: [Positive, Neutral, Negative, Mixed]
+        sentiment_score:
+          type: number
+          minimum: -1
+          maximum: 1
+        urgency:
+          type: string
+          enum: [Critical, High, Medium, Low]
+        requires_human:
+          type: boolean
+        escalation_reason:
+          type: string
+          nullable: true
+        suggested_reply:
+          type: string
+          nullable: true
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        detected_entities:
+          type: object
+          properties:
+            order_ids: { type: array, items: { type: string } }
+            ticket_ids: { type: array, items: { type: string } }
+            monetary_amounts: { type: array, items: { type: string } }
+            deadlines: { type: array, items: { type: string } }
+            products_mentioned: { type: array, items: { type: string } }
+
+    ReActStep:
+      type: object
+      properties:
+        stepNumber: { type: integer }
+        thought:
+          type: string
+          description: Agent's reasoning before taking action
+        action:
+          type: string
+          description: Tool being called
+        actionInput:
+          type: object
+          description: Parameters passed to the tool
+        observation:
+          type: string
+          description: Result returned by the tool
+
+    AgentRunResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        emailId: { type: string }
+        agentRun:
+          type: object
+          properties:
+            id: { type: string }
+            finalAction:
+              type: string
+              enum: [AUTO_REPLY, ESCALATE_HUMAN, FLAG_LEGAL, FLAG_SECURITY, CREATE_TICKET, IGNORE_SPAM, GDPR_ACK, MAX_STEPS_EXCEEDED]
+            finalDecision: { type: string }
+            totalSteps: { type: integer, maximum: 6 }
+            maxStepsReached: { type: boolean }
+            reasoningTrace:
+              type: array
+              items:
+                $ref: '#/components/schemas/ReActStep'
+            proposedReply: { type: string, nullable: true }
+            escalationBrief: { type: string, nullable: true }
+            executedAt: { type: string, format: date-time }
+
+    DryRunResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        isDryRun:
+          type: boolean
+          enum: [true]
+        emailId: { type: string }
+        emailSummary:
+          type: object
+        plannedSteps:
+          type: array
+          items:
+            type: object
+            properties:
+              stepNumber: { type: integer }
+              thought: { type: string }
+              plannedAction: { type: string }
+              actionInput: { type: object }
+              note: { type: string }
+        willAutoReply: { type: boolean }
+        willEscalate: { type: boolean }
+        estimatedFinalAction: { type: string }
+
+  responses:
+    ValidationError:
+      description: Schema validation error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error_code: { type: string, example: INGEST_ERROR }
+              message: { type: string }
+              details: { type: object }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error_code: { type: string, example: NOT_FOUND }
+              message: { type: string }
+              details: { type: object }

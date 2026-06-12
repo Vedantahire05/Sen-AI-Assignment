@@ -1,0 +1,104 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "SenAI CRM API",
+    "version": "1.0.0",
+    "description": "AI-Powered CRM Intelligence Platform"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:5000"
+    }
+  ],
+  "paths": {
+    "/api/ingest": {
+      "post": {
+        "summary": "Ingest Email"
+      }
+    },
+
+    "/classifier/{emailId}": {
+      "post": {
+        "summary": "Classify Email"
+      }
+    },
+
+    "/threads/email/{email}": {
+      "get": {
+        "summary": "Fetch Thread By Email"
+      }
+    },
+
+    "/agent/run/{emailId}": {
+      "post": {
+        "summary": "Run Agent"
+      }
+    },
+
+    "/agent/dry-run/{emailId}": {
+      "post": {
+        "summary": "Agent Dry Run"
+      }
+    },
+
+    "/rag/search": {
+      "get": {
+        "summary": "Search Knowledge Base"
+      }
+    },
+
+    "/analytics/sentiment": {
+      "get": {
+        "summary": "Sentiment Analytics"
+      }
+    },
+
+    "/analytics/categories": {
+      "get": {
+        "summary": "Category Analytics"
+      }
+    },
+
+    "/analytics/escalations": {
+      "get": {
+        "summary": "Escalation Analytics"
+      }
+    },
+
+    "/analytics/sentiment-trend": {
+      "get": {
+        "summary": "Sentiment Trend"
+      }
+    },
+
+    "/contacts/{email}": {
+      "get": {
+        "summary": "Get Contact Profile"
+      }
+    },
+
+    "/tools/account-status/{email}": {
+      "get": {
+        "summary": "Check Account Status"
+      }
+    },
+
+    "/tools/legal/{emailId}": {
+      "post": {
+        "summary": "Flag Legal Case"
+      }
+    },
+
+    "/tools/draft-reply/{emailId}": {
+      "post": {
+        "summary": "Generate Draft Reply"
+      }
+    },
+
+    "/intelligence/reputation/{email}": {
+      "get": {
+        "summary": "Reputation Intelligence"
+      }
+    }
+  }
+}
