@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { io } from 'socket.io-client';
 import {
   UrgencyBadge, SentimentBadge, CategoryBadge, StatusBadge,
   TabBar, EmptyState, Spinner, Button, Card, SectionHeader, ConfidenceBar, ChurnRisk,
@@ -15,6 +16,8 @@ const TABS = [
   { key: 'escalated', label: 'Escalated' },
   { key: 'spam', label: 'Spam' },
 ];
+
+const SOCKET_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 function formatTime(ts) {
   if (!ts) return '—';
@@ -44,7 +47,6 @@ function EmailRow({ email, selected, onClick }) {
       onMouseEnter={e => { if (!selected) e.currentTarget.style.background = 'var(--bg-hover)'; }}
       onMouseLeave={e => { if (!selected) e.currentTarget.style.background = isCritical ? 'var(--critical-bg)' : 'transparent'; }}
     >
-      {/* Urgency dot */}
       <div style={{
         width: 6, height: 6, borderRadius: '50%', flexShrink: 0, marginTop: 6,
         background: { Critical: 'var(--critical)', High: 'var(--high)', Medium: 'var(--medium)', Low: 'var(--low)' }[email.urgency] || 'var(--text-muted)',
@@ -78,12 +80,11 @@ function EmailRow({ email, selected, onClick }) {
   );
 }
 
-function EmailDetail({ email, contact, agentRuns, onClose }) {
+function EmailDetail({ email, contact, onClose }) {
   if (!email) return null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Header */}
       <div style={{
         padding: '16px 20px', borderBottom: '1px solid var(--border)',
         display: 'flex', alignItems: 'flex-start', gap: 12,
@@ -103,16 +104,13 @@ function EmailDetail({ email, contact, agentRuns, onClose }) {
         <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 18, cursor: 'pointer', flexShrink: 0 }}>✕</button>
       </div>
 
-      {/* Body */}
       <div style={{ flex: 1, overflow: 'auto', padding: '0 20px 20px' }}>
-        {/* Email body */}
         <div style={{
           margin: '16px 0', padding: '16px', background: 'var(--bg-elevated)',
           border: '1px solid var(--border)', borderRadius: 'var(--radius)',
           fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap',
         }}>{email.body || '(empty body)'}</div>
 
-        {/* Classification details */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
           <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 14 }}>
             <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Classification</div>
@@ -154,7 +152,6 @@ function EmailDetail({ email, contact, agentRuns, onClose }) {
           </div>
         </div>
 
-        {/* Suggested reply */}
         {email.suggestedReply && (
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Suggested Reply</div>
@@ -166,7 +163,6 @@ function EmailDetail({ email, contact, agentRuns, onClose }) {
           </div>
         )}
 
-        {/* Contact card */}
         {contact && (
           <div style={{ marginBottom: 20, background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 14 }}>
             <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Contact</div>
@@ -190,7 +186,6 @@ function EmailDetail({ email, contact, agentRuns, onClose }) {
           </div>
         )}
 
-        {/* Agent panel */}
         <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 16 }}>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             Agent reasoning
@@ -214,38 +209,13 @@ export default function InboxPage({ isLive, setIsLive, reloadStats }) {
 
   const load = useCallback(async () => {
     try {
-      // Load all emails from threads endpoint via stats, then fetch from multiple threads
-      // Use stream/status for email counts and get emails via a broader fetch
-      const [statusRes] = await Promise.allSettled([api.streamStatus()]);
-      // Fetch recent emails via a direct approach — get all known thread IDs from stats
-      // Since we don't have a direct /emails endpoint, use the stream status + contacts
-      const contactsRes = await api.contacts({ limit: 100 });
-      
-      // Load emails for each contact (up to 20 most recent)
-      if (contactsRes.contacts && contactsRes.contacts.length > 0) {
-        const emailPromises = contactsRes.contacts.slice(0, 30).map(c =>
-          api.threadByEmail(c.email).catch(() => null)
-        );
-        const results = await Promise.allSettled(emailPromises);
-        const allEmails = [];
-        results.forEach(r => {
-          if (r.status === 'fulfilled' && r.value?.emails) {
-            allEmails.push(...r.value.emails);
-          }
-        });
-        // Sort by timestamp desc
-        allEmails.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-        // Deduplicate by _id
-        const seen = new Set();
-        const unique = allEmails.filter(e => {
-          if (seen.has(e._id)) return false;
-          seen.add(e._id);
-          return true;
-        });
-        setEmails(unique);
+      const res = await api.emails({ limit: 200 });
+      if (res.emails) {
+        setEmails(res.emails);
       }
     } catch (e) {
-      console.error(e);
+      console.error('Failed to load emails:', e);
+      toast('Failed to load emails — is the backend running?', 'error');
     } finally {
       setLoading(false);
     }
@@ -253,29 +223,48 @@ export default function InboxPage({ isLive, setIsLive, reloadStats }) {
 
   useEffect(() => { load(); }, [load]);
 
-  // WebSocket for live updates
+  // WebSocket for live updates — use static import (not dynamic require)
   useEffect(() => {
+    let socket;
     try {
-      const { io } = require('socket.io-client');
-      const socket = io('http://localhost:5000', { transports: ['websocket', 'polling'] });
+      socket = io(SOCKET_URL, {
+        transports: ['websocket', 'polling'],
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+      });
       socketRef.current = socket;
+
+      socket.on('connect', () => {
+        console.log('WS connected:', socket.id);
+      });
+
+      socket.on('connect_error', (err) => {
+        console.warn('WS connect error:', err.message);
+      });
+
       socket.on('email_ingested', (data) => {
         if (!data.duplicate) {
           setNewCount(c => c + 1);
-          // Refresh after a short delay to allow backend processing
+          // Debounced refresh — avoid hammering the DB during fast streaming
           setTimeout(() => {
             load();
             reloadStats?.();
-          }, 1000);
+          }, 800);
         }
       });
+
       socket.on('stream_complete', () => {
         load();
         reloadStats?.();
         toast('Stream complete — inbox updated', 'success');
       });
-      return () => socket.disconnect();
-    } catch (e) {}
+    } catch (e) {
+      console.warn('WebSocket setup failed:', e);
+    }
+
+    return () => {
+      if (socket) socket.disconnect();
+    };
   }, [load, reloadStats]);
 
   // Load contact when email selected
@@ -308,7 +297,6 @@ export default function InboxPage({ isLive, setIsLive, reloadStats }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Top bar */}
       <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border)', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
@@ -327,11 +315,8 @@ export default function InboxPage({ isLive, setIsLive, reloadStats }) {
         <StreamPanel isLive={isLive} setIsLive={setIsLive} onDone={() => { load(); reloadStats?.(); setNewCount(0); }} />
       </div>
 
-      {/* Content */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Email list */}
         <div style={{ width: selected ? 360 : '100%', flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: selected ? '1px solid var(--border)' : 'none', overflow: 'hidden' }}>
-          {/* Search + tabs */}
           <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 10 }}>
             <input
               value={search} onChange={e => setSearch(e.target.value)}
@@ -347,7 +332,6 @@ export default function InboxPage({ isLive, setIsLive, reloadStats }) {
             </div>
           </div>
 
-          {/* List */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {loading ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner /></div>
@@ -366,7 +350,6 @@ export default function InboxPage({ isLive, setIsLive, reloadStats }) {
           </div>
         </div>
 
-        {/* Detail panel */}
         {selected && (
           <div style={{ flex: 1, overflow: 'hidden', animation: 'slide-in 0.15s ease' }}>
             <EmailDetail

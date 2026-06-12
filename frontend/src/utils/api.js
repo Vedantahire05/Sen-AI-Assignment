@@ -15,6 +15,14 @@ export const api = {
   ingest: (body) => req('/api/ingest', { method: 'POST', body: JSON.stringify(body) }),
   jobStatus: (jobId) => req(`/api/status/${jobId}`),
 
+  // Emails list (direct endpoint — much faster than fetching per-contact)
+  emails: (params = {}) => {
+    const qs = new URLSearchParams(
+      Object.fromEntries(Object.entries(params).filter(([, v]) => v != null && v !== ''))
+    ).toString();
+    return req(`/api/emails${qs ? '?' + qs : ''}`);
+  },
+
   // Stream
   startStream: (speed = 1, limit) =>
     req('/api/stream/start', { method: 'POST', body: JSON.stringify({ speed, limit }) }),
