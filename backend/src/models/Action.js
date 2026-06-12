@@ -4,15 +4,24 @@ const ActionSchema = new mongoose.Schema(
   {
     emailId: String,
 
-    actionType: String,
+    actionType: {
+      type: String,
+      enum: ["Auto-Reply", "Escalate", "Legal-Flag", "Ticket-Created", "Ignored"],
+    },
 
-    reasoningLog: Object,
+    // matches what agent tools write
+    agentReasoningLog: Object,
 
     proposedContent: String,
 
-    approved: {
+    isApproved: {
       type: Boolean,
       default: false,
+    },
+
+    approvedBy: {
+      type: String,
+      default: null,
     },
 
     executedAt: Date,
@@ -22,7 +31,4 @@ const ActionSchema = new mongoose.Schema(
   }
 );
 
-module.exports = mongoose.model(
-  "Action",
-  ActionSchema
-);
+module.exports = mongoose.model("Action", ActionSchema);
