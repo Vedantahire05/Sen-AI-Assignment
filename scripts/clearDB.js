@@ -1,6 +1,8 @@
 require("dotenv").config();
 const mongoose = require("mongoose");
 
+console.log("MONGO_URI =", process.env.MONGO_URI);
+
 async function clearDB() {
   try {
     await mongoose.connect(process.env.MONGO_URI);
