@@ -1,13 +1,24 @@
-require("dotenv").config();
+const path = require("path");
 const mongoose = require("mongoose");
 
-console.log("MONGO_URI =", process.env.MONGO_URI);
+// Load backend .env file
+require("dotenv").config({
+  path: path.join(__dirname, "../backend/.env"),
+});
 
 async function clearDB() {
   try {
+    console.log("MONGO_URI =", process.env.MONGO_URI);
+
+    if (!process.env.MONGO_URI) {
+      throw new Error(
+        "MONGO_URI not found. Check backend/.env and dotenv path."
+      );
+    }
+
     await mongoose.connect(process.env.MONGO_URI);
 
-    console.log("MongoDB Connected");
+    console.log("✅ MongoDB Connected");
 
     const db = mongoose.connection.db;
 
@@ -24,19 +35,31 @@ async function clearDB() {
 
     for (const collectionName of collections) {
       try {
-        const result = await db.collection(collectionName).deleteMany({});
+        const result = await db
+          .collection(collectionName)
+          .deleteMany({});
+
         console.log(
-          `${collectionName}: ${result.deletedCount} documents deleted`
+          `🗑️ ${collectionName}: ${result.deletedCount} documents deleted`
         );
       } catch (err) {
-        console.log(`Collection ${collectionName} not found, skipping`);
+        console.log(
+          `⚠️ Collection '${collectionName}' not found, skipping`
+        );
       }
     }
 
-    console.log("Database cleared successfully");
+    console.log("\n✅ Database cleared successfully");
+
+    await mongoose.disconnect();
+
     process.exit(0);
   } catch (error) {
-    console.error("Error clearing database:", error);
+    console.error("\n❌ Error clearing database:");
+    console.error(error.message);
+
+    await mongoose.disconnect().catch(() => {});
+
     process.exit(1);
   }
 }
